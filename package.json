@@ -1,0 +1,32 @@
+{
+  "name": "simple-server",
+  "version": "0.1.0",
+  "description": "A simple document oriented web server.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ElizabethHudnott/simple-server.git"
+  },
+  "keywords": [
+    "web",
+    "server",
+    "express",
+    "document",
+    "store",
+    "social"
+  ],
+  "author": "Elizabeth Hudnott",
+  "license": "CC-BY-SA-4.0",
+  "bugs": {
+    "url": "https://github.com/ElizabethHudnott/simple-server/issues"
+  },
+  "homepage": "https://github.com/ElizabethHudnott/simple-server#readme",
+  "dependencies": {
+    "express": "^4.17.1",
+    "npm": "^6.14.5",
+    "pg": "^8.2.1"
+  }
+}

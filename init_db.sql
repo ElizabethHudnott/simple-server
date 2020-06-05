@@ -32,27 +32,25 @@ CREATE TABLE documents (
 	category TEXT NOT NULL,
 	document JSONB NOT NULL,
 	num_attachments SMALLINT NOT NULL,
-	likes INTEGER NOT NULL DEFAULT 0,
 	awaiting_moderation BOOLEAN NOT NULL DEFAULT true,
 	PRIMARY KEY (document_id, awaiting_moderation),
-	CONSTRAINT unique_document UNIQUE (user_id, document, awaiting_moderation),
+	CONSTRAINT unique_document UNIQUE (document, awaiting_moderation),
 	FOREIGN KEY (user_id) REFERENCES users ON DELETE SET NULL,
-	FOREIGN KEY (category) REFERENCES categories,
+	FOREIGN KEY (category) REFERENCES categories ON UPDATE CASCADE,
 	CONSTRAINT title_required CHECK(title <> ''),
 	CONSTRAINT no_whitespace CHECK(title = TRIM(' ' FROM title)),
 	CHECK(num_attachments >= 0),
-	CHECK(likes >= 0)
 );
 
 CREATE UNIQUE INDEX unique_title ON documents(user_id, LOWER(title), awaiting_moderation);
 CREATE INDEX ON documents(title);
 CREATE INDEX ON documents(category);
-CREATE INDEX ON documents(likes DESC);
 
 CREATE TABLE keywords (
 	document_id BIGINT NOT NULL,
 	keyword TEXT NOT NULL,
 	awaiting_moderation BOOLEAN NOT NULL DEFAULT true,
+	PRIMARY KEY (document_id, keyword, awaiting_moderation),
 	CONSTRAINT keyword_required CHECK(keyword <> ''),
 	CONSTRAINT no_whitespace CHECK(keyword = TRIM(' ' FROM keyword))
 );
@@ -62,13 +60,13 @@ CREATE INDEX ON keywords(keyword);
 
 CREATE TABLE likes (
 	user_id TEXT,
-	user_id_hash TEXT NOT NULL,
+	user_id_hash TEXT NOT NULL DEFAULT,
 	document_id BIGINT NOT NULL,
-	CONSTRAINT "key" UNIQUE (user_id, user_id_hash, document_id),
+	awaiting_moderation BOOLEAN NOT NULL,
+	UNIQUE(user_id, document_id, awaiting_moderation),
 	FOREIGN KEY (user_id) REFERENCES users ON DELETE SET NULL,
+	FOREIGN KEY (document_id, awaiting_moderation) REFERENCES documents ON DELETE CASCADE ON UPDATE CASCADE,
 	CONSTRAINT hash CHECK(user_id IS NULL OR user_id_hash = MD5(user_id))
 );
 
 CREATE INDEX ON likes(user_id, document_id);
-CREATE INDEX ON likes(user_id_hash);
-

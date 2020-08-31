@@ -4,17 +4,24 @@ const app = express();
 const Router = require('express-promise-router');
 const router = new Router();
 app.use(router);
+const debug = {};
+debug.query = true;
 
 // Debugging
-const Query = require('pg').Query;
-const submit = Query.prototype.submit;
-Query.prototype.submit = function() {
-  const text = this.text;
-  const values = this.values;
-  const query = values === undefined ? text : values.reduce((q, v, i) => q.replace(`$${i + 1}`, v), text);
-  console.log(query);
-  submit.apply(this, arguments);
-};
+if (debug.query) {
+	const Query = require('pg').Query;
+	const submit = Query.prototype.submit;
+	Query.prototype.submit = function() {
+	  const text = this.text;
+	  const values = this.values;
+	  const query = values === undefined ? text : text.replace(/\$(\d+)/g, function (match, n) {
+	  	const value = values[parseInt(n) - 1];
+	  	return typeof(value) === 'string' ? "'" + value + "'" : value;
+	  });
+	  console.log(query);
+	  submit.apply(this, arguments);
+	};
+}
 
 const {Pool} = require('pg');
 const pool = new Pool({
@@ -48,10 +55,10 @@ function getUserID(user) {
 	return user;
 }
 
-function isAdmin(client, userID) {
+async function isAdminUser(client, userID) {
 	try {
-		result = client.query(
-			'SELECT is_admin FROM users FROM user_id = $1;',
+		const result = await client.query(
+			'SELECT is_admin FROM users WHERE user_id = $1;',
 			[userID]
 		);
 		return result.rows.length > 0 && result.rows[0].is_admin;
@@ -89,6 +96,7 @@ router.post('/save', async function (request, response) {
 
 	try {
 		let alreadyExists = false, newDocument = true;
+		let isAdmin = false;
 
 		// Check if this document already exists in post-moderated form.
 		result = await client.query(
@@ -112,11 +120,13 @@ router.post('/save', async function (request, response) {
 			if (result.rows[0].user_id !== userID) {
 				// If the current user didn't create the existing document then like the existing copy.
 				await client.query(
-					'INSERT INTO likes (user_id, user_id_hash, document_id, awaiting_moderation) \
-					VALUES ($1, MD5($1), $2, false) ON CONFLICT DO NOTHING;',
+					'INSERT INTO likes (user_id, document_id, awaiting_moderation) \
+					VALUES ($1, $2, false) ON CONFLICT DO NOTHING;',
 					[userID, documentID]
 				);
 			}
+		} else {
+			isAdmin = isAdminUser(client, userID);
 		}
 
 		if (documentID && !alreadyExists) {
@@ -141,8 +151,8 @@ router.post('/save', async function (request, response) {
 
 				// Insert as an existing document.
 				await client.query(
-					'INSERT INTO documents (document_id, user_id, title, category, document, num_attachments) VALUES ($1, $2, $3, $4, $5, $6);',
-					[documentID, userID, data.title, data.category, doc, data.attachments.length]
+					'INSERT INTO documents (document_id, user_id, title, category, document, num_attachments, awaiting_moderation) VALUES ($1, $2, $3, $4, $5, $6, $7);',
+					[documentID, userID, data.title, data.category, doc, data.attachments.length, !isAdmin]
 				);
 			}
 		}
@@ -150,8 +160,8 @@ router.post('/save', async function (request, response) {
 		if (newDocument) {
 			// Insert as a new document.
 			result = await client.query(
-				'INSERT INTO documents (user_id, title, category, document, num_attachments) VALUES ($1, $2, $3, $4, $5) RETURNING document_id;',
-				[userID, data.title, data.category, doc, data.attachments.length]
+				'INSERT INTO documents (user_id, title, category, document, num_attachments, awaiting_moderation) VALUES ($1, $2, $3, $4, $5, $6) RETURNING document_id;',
+				[userID, data.title, data.category, doc, data.attachments.length, !isAdmin]
 			);
 			documentID = result.rows[0].document_id;
 		}
@@ -183,8 +193,8 @@ router.post('/save', async function (request, response) {
 				if (result.rows.length > 0) {
 					documentID = result.rows[0].document_id;
 					await client.query(
-						'INSERT INTO likes (user_id, user_id_hash, document_id, awaiting_moderation) \
-						VALUES ($1, MD5($1), $2, true) ON CONFLICT DO NOTHING;',
+						'INSERT INTO likes (user_id, document_id, awaiting_moderation) \
+						VALUES ($1, $2, true) ON CONFLICT DO NOTHING;',
 						[userID, documentID]
 					);
 				}
@@ -208,7 +218,7 @@ router.post('/load', async function (request, response) {
 	response.type('json');
 	const data = request.body;
 	const userID = getUserID(data.user);
-	const documentID = data.documentID;
+	const documentID = parseInt(data.documentID);
 	let client;
 	try {
 		client = await pool.connect();
@@ -222,7 +232,7 @@ router.post('/load', async function (request, response) {
 	try {
 		let result;
 
-		if (data.forModeration && isAdmin(client, userID)) {
+		if (data.forModeration && await isAdminUser(client, userID)) {
 			// Admin user can see the version waiting to be moderated.
 			result = await client.query(
 				'SELECT document FROM documents WHERE document_id = $1 \
